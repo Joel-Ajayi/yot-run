@@ -1,0 +1,21 @@
+[package]
+name = "yot-run"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ayotunde"]
+description = "A work-stealing, multi-threaded async executor with non-blocking scheduling."
+readme = "REAME.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Joel-Ajayi/yot-run"
+homepage = "https://github.com/Joel-Ajayi/yot-run"
+documentation = "https://github.com/Joel-Ajayi/yot-run/REAME.md"
+keywords = ["async", "executor", "work-stealing", "futures", "reactor"]
+categories = ["asynchronous", "concurrency"]
+
+[dependencies]
+crossbeam-deque = "0.8.6"
+crossbeam-queue = "0.3"
+crossbeam-utils = "0.8.21"
+futures = "0.3.31"
+once_cell = "1.21.3"
+tracing = "0.1.44"
