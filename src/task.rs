@@ -1,18 +1,22 @@
-use futures::future::BoxFuture;
 use sptr::Strict;
-use std::{
-    future::{self, Future},
-    pin::Pin,
-    ptr,
-    sync::{
-        atomic::{AtomicPtr, AtomicU8, Ordering},
-        Arc,
-    },
+use std::future::Future;
+use std::pin::Pin;
+use std::ptr;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{
+    atomic::{AtomicPtr, AtomicU8, Ordering},
+    Arc,
 };
+use std::task::{Context, Poll};
 
-const IDLE: u8 = 0;
-const POLLING: u8 = 1;
-const COMPLETED: u8 = 2;
+use crate::waker;
+
+/// Global counter that starts at 0.
+pub(crate) static NEXT_TASK_ID: AtomicUsize = AtomicUsize::new(0);
+
+const TASK_STATE_IDLE: u8 = 0;
+const TASK_STATE_POLLING: u8 = 1;
+const TASK_STATE_COMPLETED: u8 = 2;
 
 /// A pinned, heap-allocated future that produces no output.
 ///
@@ -40,15 +44,74 @@ impl Task {
     ///
     /// The future is stored in an atomic pointer to allow concurrent access from multiple
     /// executor workers. The task is returned wrapped in an `Arc` for reference counting.
-    pub fn new(id: usize, future: TaskFuture) -> Arc<Self> {
+    pub fn new(future: TaskFuture) -> Self {
+        let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
+
         // Convert the future into a raw pointer, consuming the Box while preserving the heap allocation.
         let ptr = Box::into_raw(Box::new(future));
 
-        Arc::new(Self {
+        Self {
             id,
-            state: AtomicU8::new(IDLE),
+            state: AtomicU8::new(TASK_STATE_IDLE),
             future: AtomicPtr::new(ptr),
-        })
+        }
+    }
+
+    pub fn take_task(&self) -> Option<Box<TaskFuture>> {
+        // Since Polling requires mutational and we can have double or more polling
+        // Check if the task is IDLE and mark it as POLLING
+        // Use AcqRel to ensure visibility across worker threads
+
+        if self
+            .state
+            .compare_exchange(
+                TASK_STATE_IDLE,
+                TASK_STATE_POLLING,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return None;
+        }
+
+        let ptr = self.future.swap(ptr::null_mut(), Ordering::Acquire);
+
+        if ptr.is_null() {
+            // Should not happen, but be safe
+            self.state.store(TASK_STATE_IDLE, Ordering::Release);
+            return None;
+        }
+
+        Some(unsafe { Box::from_raw(ptr) })
+    }
+
+    pub fn poll(&self, mut future: Box<TaskFuture>) -> Poll<()> {
+        let mut ctx = Context::from_waker(waker);
+        // Remember: 'future' is already pinned because TaskFuture is Pin<Box<...>>
+        match (*future).as_mut().poll(&mut ctx) {
+            Poll::Ready(()) => {
+                // Task finished: Update state to COMPLETE.
+                // The 'future' variable goes out of scope here and is dropped automatically.
+                self.state.store(TASK_STATE_COMPLETED, Ordering::Release);
+                Poll::Ready(())
+            }
+            Poll::Pending => {
+                // Task not finished: Put the future back into the mailbox.
+                self.release_after_poll(future);
+                Poll::Pending
+            }
+        }
+    }
+
+    /// Internal helper to put the future back in the mailbox
+    fn release_after_poll(&self, future: Box<TaskFuture>) {
+        // Task pending: put the pointer back and reset state to IDLE
+        let ptr = Box::into_raw(future);
+        // Store the address back so another thread can take it later
+        self.future.store(ptr, Ordering::Release);
+        // Reset state to IDLE so 'try_take' can succeed again
+        self.state.store(TASK_STATE_IDLE, Ordering::Release);
     }
 }
 
