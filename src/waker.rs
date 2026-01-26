@@ -8,7 +8,7 @@ use std::task::{RawWaker, RawWakerVTable, Waker};
 /// When a task is waiting on I/O or other events, the waker is used to notify the executor
 /// that the task is ready to progress and should be polled again.
 
-struct WakerData {
+pub struct WakerData {
     task: Arc<Task>,
     handle: Arc<ExecutorHandle>,
 }

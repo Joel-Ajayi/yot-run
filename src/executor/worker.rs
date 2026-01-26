@@ -61,6 +61,7 @@ impl Worker {
     }
 
     fn run(&mut self) {
+        // since this will run when executor is steal initializing
         while self.executor_handle.get().is_none() {
             thread::yield_now();
         }
@@ -114,10 +115,10 @@ impl Worker {
         }
     }
 
-    fn poll(&self, task: Arc<Task>, handle: Arc<ExecutorHandle>) {
-        if let Some(future) = task.take_task() {
+    fn poll(&self, task: Arc<Task>, executor_handle: Arc<ExecutorHandle>) {
+        if let Some(future) = task.try_take() {
             // Add the task back to the queue if pending
-            let waker = waker::task_waker(task.clone(), handle.clone());
+            let waker = task.get_or_init_waker(executor_handle);
             task.poll(future, waker);
         }
     }

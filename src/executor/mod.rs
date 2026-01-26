@@ -44,8 +44,7 @@ impl ExecutorHandle {
 }
 
 pub struct Executor {
-    injector: Arc<SegQueue<Arc<Task>>>,
-    workers: Arc<Vec<WorkerHandle>>,
+    handle: Arc<ExecutorHandle>,
 }
 
 impl Executor {
@@ -63,25 +62,20 @@ impl Executor {
 
         let shared_workers = Arc::new(worker_handles);
         let executor_handle_final = Arc::new(ExecutorHandle {
-            injector: injector.clone(),
-            workers: shared_workers.clone(),
+            injector,
+            workers: shared_workers,
         });
 
         executor_handle.set(executor_handle_final.clone());
 
         let exec = Executor {
-            injector,
-            workers: shared_workers,
+            handle: executor_handle_final,
         };
         exec
     }
 
     pub fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
         let task = Arc::new(Task::new(Box::pin(fut)));
-        let handle = ExecutorHandle {
-            injector: self.injector.clone(),
-            workers: self.workers.clone(),
-        };
-        handle.enqueue(task);
+        self.handle.enqueue(task);
     }
 }

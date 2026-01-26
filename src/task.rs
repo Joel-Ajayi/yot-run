@@ -3,12 +3,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::atomic::AtomicUsize;
+use std::sync::OnceLock;
 use std::sync::{
     atomic::{AtomicPtr, AtomicU8, Ordering},
     Arc,
 };
 use std::task::{Context, Poll, Waker};
 
+use crate::executor::ExecutorHandle;
 use crate::waker;
 
 /// Global counter that starts at 0.
@@ -37,6 +39,8 @@ pub struct Task {
     pub state: AtomicU8,
     /// Raw pointer to the boxed future, stored atomically for thread-safe access.
     pub future: AtomicPtr<TaskFuture>,
+    // Cache the waker here to avoid repeated Box allocations
+    pub waker: OnceLock<Waker>,
 }
 
 impl Task {
@@ -54,10 +58,11 @@ impl Task {
             id,
             state: AtomicU8::new(TASK_STATE_IDLE),
             future: AtomicPtr::new(ptr),
+            waker: OnceLock::new(),
         }
     }
 
-    pub fn take_task(&self) -> Option<Box<TaskFuture>> {
+    pub fn try_take(&self) -> Option<Box<TaskFuture>> {
         // Since Polling requires mutational and we can have double or more polling
         // Check if the task is IDLE and mark it as POLLING
         // Use AcqRel to ensure visibility across worker threads
@@ -86,22 +91,25 @@ impl Task {
         Some(unsafe { Box::from_raw(ptr) })
     }
 
-    pub fn poll(&self, mut future: Box<TaskFuture>, waker: Waker) -> Poll<()> {
-        let mut ctx = Context::from_waker(&waker);
+    pub fn poll(&self, mut future: Box<TaskFuture>, waker: &Waker) {
+        let mut ctx = Context::from_waker(waker);
         // Remember: 'future' is already pinned because TaskFuture is Pin<Box<...>>
         match (*future).as_mut().poll(&mut ctx) {
             Poll::Ready(()) => {
                 // Task finished: Update state to COMPLETE.
                 // The 'future' variable goes out of scope here and is dropped automatically.
                 self.state.store(TASK_STATE_COMPLETED, Ordering::Release);
-                Poll::Ready(())
             }
             Poll::Pending => {
                 // Task not finished: Put the future back into the mailbox.
                 self.release_after_poll(future);
-                Poll::Pending
             }
         }
+    }
+
+    pub fn get_or_init_waker(self: &Arc<Self>, executor_handle: Arc<ExecutorHandle>) -> &Waker {
+        self.waker
+            .get_or_init(|| waker::task_waker(self.clone(), executor_handle))
     }
 
     /// Internal helper to put the future back in the mailbox
