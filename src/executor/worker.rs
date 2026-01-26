@@ -61,13 +61,9 @@ impl Worker {
     }
 
     fn run(&mut self) {
-        // since this will run when executor is steal initializing
-        while self.executor_handle.get().is_none() {
-            thread::yield_now();
-        }
-
         // Cache the Arc<Vec<WorkerHandle>> locally for fast access.
-        let exector_handle = self.executor_handle.get().unwrap().clone();
+        // wait blocks the thread untill .set has been called
+        let exector_handle = self.executor_handle.wait();
 
         loop {
             if let Some(task) = self.local_q.pop() {
