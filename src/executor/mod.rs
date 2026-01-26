@@ -10,18 +10,14 @@ mod worker;
 
 use self::worker::WorkerHandle;
 use crate::task::Task;
-use crate::task::NEXT_TASK_ID;
 use crossbeam_queue::SegQueue;
 use std::sync::OnceLock;
 use std::{
     future::Future,
-    process::Output,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
+#[derive(Debug)]
 pub struct ExecutorHandle {
     injector: Arc<SegQueue<Arc<Task>>>,
     workers: Arc<Vec<WorkerHandle>>,
@@ -66,7 +62,9 @@ impl Executor {
             workers: shared_workers,
         });
 
-        executor_handle.set(executor_handle_final.clone());
+        executor_handle
+            .set(executor_handle_final.clone())
+            .expect("Failed to initialize workers");
 
         let exec = Executor {
             handle: executor_handle_final,

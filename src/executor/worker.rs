@@ -1,15 +1,14 @@
-use crate::{executor::ExecutorHandle, task::Task, waker};
-use crossbeam_deque::{Injector, Steal, Stealer, Worker as DequeWorker};
-use crossbeam_queue::SegQueue;
+use crate::{executor::ExecutorHandle, task::Task};
+use crossbeam_deque::{Steal, Stealer, Worker as DequeWorker};
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
     },
-    task::Poll,
     thread,
 };
 
+#[derive(Debug)]
 pub struct WorkerHandle {
     pub id: usize,
     pub stealer: Stealer<Arc<Task>>,
