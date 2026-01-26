@@ -62,7 +62,7 @@ impl Task {
         }
     }
 
-    pub fn try_take(&self) -> Option<Box<TaskFuture>> {
+    pub fn try_take(&self) -> Option<TaskFuture> {
         // Since Polling requires mutational and we can have double or more polling
         // Check if the task is IDLE and mark it as POLLING
         // Use AcqRel to ensure visibility across worker threads
@@ -88,13 +88,13 @@ impl Task {
             return None;
         }
 
-        Some(unsafe { Box::from_raw(ptr) })
+        Some(unsafe { *Box::from_raw(ptr as *mut TaskFuture) })
     }
 
-    pub fn poll(&self, mut future: Box<TaskFuture>, waker: &Waker) {
+    pub fn poll(&self, mut future: TaskFuture, waker: &Waker) {
         let mut ctx = Context::from_waker(waker);
         // Remember: 'future' is already pinned because TaskFuture is Pin<Box<...>>
-        match (*future).as_mut().poll(&mut ctx) {
+        match future.as_mut().poll(&mut ctx) {
             Poll::Ready(()) => {
                 // Task finished: Update state to COMPLETE.
                 // The 'future' variable goes out of scope here and is dropped automatically.
@@ -113,9 +113,9 @@ impl Task {
     }
 
     /// Internal helper to put the future back in the mailbox
-    fn release_after_poll(&self, future: Box<TaskFuture>) {
+    fn release_after_poll(&self, future: TaskFuture) {
         // Task pending: put the pointer back and reset state to IDLE
-        let ptr = Box::into_raw(future);
+        let ptr = Box::into_raw(Box::new(future));
         // Store the address back so another thread can take it later
         self.future.store(ptr, Ordering::Release);
         // Reset state to IDLE so 'try_take' can succeed again

@@ -10,8 +10,10 @@ mod worker;
 
 use self::worker::WorkerHandle;
 use crate::task::Task;
+use core::num;
 use crossbeam_queue::SegQueue;
 use std::sync::OnceLock;
+use std::thread;
 use std::{
     future::Future,
     sync::{atomic::Ordering, Arc},
@@ -40,12 +42,14 @@ impl ExecutorHandle {
 }
 
 pub struct Executor {
-    handle: Arc<ExecutorHandle>,
+    pub handle: Arc<ExecutorHandle>,
 }
 
 impl Executor {
-    pub fn new() -> Self {
-        let num_workers = 10;
+    pub fn new() -> std::io::Result<Arc<ExecutorHandle>> {
+        let mut num_workers = thread::available_parallelism()?.get();
+        num_workers = if num_workers > 10 { 10 } else { num_workers };
+
         let injector = Arc::new(SegQueue::new());
         let executor_handle = Arc::new(OnceLock::<Arc<ExecutorHandle>>::new());
 
@@ -66,14 +70,6 @@ impl Executor {
             .set(executor_handle_final.clone())
             .expect("Failed to initialize workers");
 
-        let exec = Executor {
-            handle: executor_handle_final,
-        };
-        exec
-    }
-
-    pub fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
-        let task = Arc::new(Task::new(Box::pin(fut)));
-        self.handle.enqueue(task);
+        Ok(executor_handle_final)
     }
 }

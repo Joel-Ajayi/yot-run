@@ -1,0 +1,2 @@
+[workspace]
+members = ["yot_run", "yot_run_macros"]

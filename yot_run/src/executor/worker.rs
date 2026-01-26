@@ -62,16 +62,16 @@ impl Worker {
     fn run(&mut self) {
         // Cache the Arc<Vec<WorkerHandle>> locally for fast access.
         // wait blocks the thread untill .set has been called
-        let exector_handle = self.executor_handle.wait();
+        let executor_handle = self.executor_handle.wait();
 
         loop {
             if let Some(task) = self.local_q.pop() {
-                self.poll(task, exector_handle.clone());
+                self.poll(task, executor_handle.clone());
                 continue;
             }
 
             // drain injector
-            while let Some(task) = exector_handle.injector.pop() {
+            while let Some(task) = executor_handle.injector.pop() {
                 self.local_q.push(task);
             }
 
@@ -80,11 +80,11 @@ impl Worker {
             }
 
             // Steal tasks
-            let num_workers = exector_handle.workers.len();
+            let num_workers = executor_handle.workers.len();
             let rand_start_idx = rand::random::<u32>() as usize % num_workers;
             for i in 0..num_workers {
                 let idx = (rand_start_idx + i) % num_workers;
-                let victim = &exector_handle.workers[idx];
+                let victim = &executor_handle.workers[idx];
 
                 if victim.id == self.id {
                     continue;
@@ -101,6 +101,14 @@ impl Worker {
 
             // continue with other task if any
             if !self.local_q.is_empty() {
+                continue;
+            }
+
+            self.idle.store(true, Ordering::Release);
+
+            // Recheck to avoid a lost wakeup.
+            if !self.local_q.is_empty() || !executor_handle.injector.is_empty() {
+                self.idle.store(false, Ordering::Release);
                 continue;
             }
 

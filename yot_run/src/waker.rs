@@ -2,12 +2,14 @@ use crate::executor::ExecutorHandle;
 use crate::task::Task;
 use std::sync::Arc;
 use std::task::{RawWaker, RawWakerVTable, Waker};
+use std::thread::Thread;
 
 /// Wakes a task to resume execution.
 ///
 /// When a task is waiting on I/O or other events, the waker is used to notify the executor
 /// that the task is ready to progress and should be polled again.
 
+/* --- 1. TASK WAKER (For background workers) --- */
 pub struct WakerData {
     task: Arc<Task>,
     handle: Arc<ExecutorHandle>,
@@ -47,3 +49,33 @@ unsafe fn drop(data: *const ()) {
 }
 
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+
+/* --- 2. UNPARK WAKER (For block_on) --- */
+
+/// Creates a waker that unparks a specific thread.
+pub fn unpark_waker(thread: Thread) -> Waker {
+    let ptr = Box::into_raw(Box::new(thread)) as *const ();
+    unsafe { Waker::from_raw(RawWaker::new(ptr, &UNPARK_VTABLE)) }
+}
+
+unsafe fn clone_unpark(ptr: *const ()) -> RawWaker {
+    let thread = (*(ptr as *const Thread)).clone();
+    RawWaker::new(Box::into_raw(Box::new(thread)) as *const (), &UNPARK_VTABLE)
+}
+
+unsafe fn wake_unpark(ptr: *const ()) {
+    let thread = *Box::from_raw(ptr as *mut Thread);
+    thread.unpark();
+}
+
+unsafe fn wake_unpark_by_ref(ptr: *const ()) {
+    let thread = &*(ptr as *const Thread);
+    thread.unpark();
+}
+
+unsafe fn drop_unpark(ptr: *const ()) {
+    let _ = Box::from_raw(ptr as *mut Thread);
+}
+
+static UNPARK_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(clone_unpark, wake_unpark, wake_unpark_by_ref, drop_unpark);
