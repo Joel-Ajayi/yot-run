@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicPtr, AtomicU8, Ordering},
     Arc,
 };
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 use crate::waker;
 
@@ -86,8 +86,8 @@ impl Task {
         Some(unsafe { Box::from_raw(ptr) })
     }
 
-    pub fn poll(&self, mut future: Box<TaskFuture>) -> Poll<()> {
-        let mut ctx = Context::from_waker(waker);
+    pub fn poll(&self, mut future: Box<TaskFuture>, waker: Waker) -> Poll<()> {
+        let mut ctx = Context::from_waker(&waker);
         // Remember: 'future' is already pinned because TaskFuture is Pin<Box<...>>
         match (*future).as_mut().poll(&mut ctx) {
             Poll::Ready(()) => {

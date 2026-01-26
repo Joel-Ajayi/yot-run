@@ -1,16 +1,14 @@
-use crate::{task::Task, waker};
+use crate::{executor::ExecutorHandle, task::Task, waker};
 use crossbeam_deque::{Injector, Steal, Stealer, Worker as DequeWorker};
 use crossbeam_queue::SegQueue;
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     task::Poll,
     thread,
 };
-
-static NEXT_WORKER_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub struct WorkerHandle {
     pub id: usize,
@@ -28,34 +26,26 @@ impl WorkerHandle {
 pub struct Worker {
     pub id: usize,
     local_q: DequeWorker<Arc<Task>>,
-    injector: Arc<SegQueue<Arc<Task>>>,
-    workers: Arc<Vec<WorkerHandle>>,
+    executor_handle: Arc<OnceLock<Arc<ExecutorHandle>>>,
     idle: Arc<AtomicBool>,
 }
 
 impl Worker {
-    pub fn start(
-        injector: Arc<SegQueue<Arc<Task>>>,
-        workers: Arc<Vec<WorkerHandle>>,
-    ) -> WorkerHandle {
-        let id = NEXT_WORKER_ID.fetch_add(1, Ordering::Acquire);
+    pub fn start(id: usize, executor_handle: Arc<OnceLock<Arc<ExecutorHandle>>>) -> WorkerHandle {
         let local_q: DequeWorker<Arc<Task>> = DequeWorker::new_fifo();
         let stealer = local_q.stealer();
 
         let idle_flag = Arc::new(AtomicBool::new(false));
-
-        // spawn the thread
-        let idle_clone = idle_flag.clone();
+        let idle_flag_clone = idle_flag.clone();
 
         let builder = thread::Builder::new().name(format!("worker-{id}"));
         let thread_handle = builder
             .spawn(move || {
                 let mut worker = Worker {
                     id,
-                    idle: idle_clone,
+                    idle: idle_flag_clone,
                     local_q,
-                    injector,
-                    workers,
+                    executor_handle,
                 };
                 worker.run();
             })
@@ -71,14 +61,21 @@ impl Worker {
     }
 
     fn run(&mut self) {
+        while self.executor_handle.get().is_none() {
+            thread::yield_now();
+        }
+
+        // Cache the Arc<Vec<WorkerHandle>> locally for fast access.
+        let exector_handle = self.executor_handle.get().unwrap().clone();
+
         loop {
             if let Some(task) = self.local_q.pop() {
-                self.poll(task);
+                self.poll(task, exector_handle.clone());
                 continue;
             }
 
             // drain injector
-            while let Some(task) = self.injector.pop() {
+            while let Some(task) = exector_handle.injector.pop() {
                 self.local_q.push(task);
             }
 
@@ -87,11 +84,11 @@ impl Worker {
             }
 
             // Steal tasks
-            let num_workers = self.workers.len();
+            let num_workers = exector_handle.workers.len();
             let rand_start_idx = rand::random::<u32>() as usize % num_workers;
             for i in 0..num_workers {
                 let idx = (rand_start_idx + i) % num_workers;
-                let victim = &self.workers[idx];
+                let victim = &exector_handle.workers[idx];
 
                 if victim.id == self.id {
                     continue;
@@ -117,10 +114,11 @@ impl Worker {
         }
     }
 
-    fn poll(&self, task: Arc<Task>) {
+    fn poll(&self, task: Arc<Task>, handle: Arc<ExecutorHandle>) {
         if let Some(future) = task.take_task() {
             // Add the task back to the queue if pending
             let waker = waker::task_waker(task.clone(), handle.clone());
+            task.poll(future, waker);
         }
     }
 }

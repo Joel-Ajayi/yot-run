@@ -12,6 +12,7 @@ use self::worker::WorkerHandle;
 use crate::task::Task;
 use crate::task::NEXT_TASK_ID;
 use crossbeam_queue::SegQueue;
+use std::sync::OnceLock;
 use std::{
     future::Future,
     process::Output,
@@ -51,29 +52,36 @@ impl Executor {
     pub fn new() -> Self {
         let num_workers = 10;
         let injector = Arc::new(SegQueue::new());
-        let mut handles = Vec::with_capacity(num_workers);
-        let workers = Arc::new(handles);
+        let executor_handle = Arc::new(OnceLock::<Arc<ExecutorHandle>>::new());
+
+        let mut worker_handles = Vec::with_capacity(num_workers);
+
         // create worker handles (threads started in Worker::start)
         for id in 0..num_workers {
-            handles.push(worker::Worker::start(id, injector, workers));
+            worker_handles.push(worker::Worker::start(id, executor_handle.clone()));
         }
 
-        let workers = Arc::new(handles);
+        let shared_workers = Arc::new(worker_handles);
+        let executor_handle_final = Arc::new(ExecutorHandle {
+            injector: injector.clone(),
+            workers: shared_workers.clone(),
+        });
+
+        executor_handle.set(executor_handle_final.clone());
 
         let exec = Executor {
-            injector: injector.clone(),
-            workers: workers.clone(),
+            injector,
+            workers: shared_workers,
         };
         exec
     }
 
     pub fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
         let task = Arc::new(Task::new(Box::pin(fut)));
-        self.injector.push(task);
         let handle = ExecutorHandle {
             injector: self.injector.clone(),
             workers: self.workers.clone(),
         };
-        handle.try_unpark_one();
+        handle.enqueue(task);
     }
 }
