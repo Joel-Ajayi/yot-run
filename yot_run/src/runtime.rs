@@ -1,3 +1,8 @@
+//! The async runtime managing executor and reactor threads.
+//!
+//! The runtime coordinates task execution via the executor and I/O event handling via the reactor,
+//! storing both in thread-local storage for easy access.
+
 use std::future::{self, Future};
 use std::sync::{Arc, OnceLock};
 use std::task::Context;
@@ -7,18 +12,22 @@ use crate::executor::{Executor, ExecutorHandle};
 use crate::reactor::{run_reactor_loop, Reactor};
 use crate::task::Task;
 
-// const: This allows the compiler to initialize the variable at compile time instead of at runtime.
+/// Thread-local storage for the current task executor handle.
 thread_local! {
     static HANDLE: OnceLock<Arc<ExecutorHandle>> = const { OnceLock::new() };
     static REACTOR: OnceLock<Arc<Reactor>> = const { OnceLock::new() };
 }
 
+/// The main async runtime combining executor and reactor.
 pub struct Runtime {
+    /// The task executor handle.
     handle: Arc<ExecutorHandle>,
+    /// The I/O reactor handle.
     reactor: Arc<Reactor>,
 }
 
 impl Runtime {
+    /// Creates and starts a new runtime with executor and reactor threads.
     pub fn new() -> std::io::Result<Self> {
         let (reactor, poll) = Reactor::new()?;
         let wakers = reactor.wakers.clone();
@@ -35,6 +44,7 @@ impl Runtime {
         Ok(runtime)
     }
 
+    /// Stores executor and reactor handles in thread-local storage.
     pub fn enter(&self) {
         HANDLE.with(|h| {
             let _ = h.set(self.handle.clone());
@@ -44,6 +54,7 @@ impl Runtime {
         });
     }
 
+    /// Spawns a future to be executed asynchronously.
     pub fn spawn<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -52,7 +63,7 @@ impl Runtime {
         self.handle.enqueue(task);
     }
 
-    // This worker thread
+    /// Blocks the current thread until the given future completes.
     pub fn block_on<F>(&self, fut: F)
     where
         F: Future<Output = ()>,
@@ -72,6 +83,11 @@ impl Runtime {
     }
 }
 
+/// Spawns a future from within an active runtime context.
+///
+/// # Panics
+///
+/// Panics if called outside of a runtime context.
 pub fn spawn<F>(future: F)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -85,15 +101,11 @@ where
     });
 }
 
-pub(crate) fn get_handle() -> Arc<ExecutorHandle> {
-    HANDLE.with(|h| {
-        h.get()
-            .cloned()
-            .expect("yot_run: spawn called outside of a runtime context")
-    })
-}
-
-/// Used by TcpListener::bind() to find the reactor in TLS.
+/// Retrieves the current runtime's reactor from thread-local storage.
+///
+/// # Panics
+///
+/// Panics if called outside of a runtime context.
 pub(crate) fn get_reactor() -> Arc<Reactor> {
     REACTOR.with(|r| {
         r.get()

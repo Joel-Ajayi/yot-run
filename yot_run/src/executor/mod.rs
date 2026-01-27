@@ -3,34 +3,31 @@
 //! The executor manages a pool of worker threads that poll tasks in a work-stealing queue,
 //! enabling efficient parallel execution of async workloads.
 
-/// A multi-threaded executor for running async tasks.
-///
-/// The executor spawns tasks from futures and manages their execution across multiple worker threads.
 mod worker;
-
 use self::worker::WorkerHandle;
 use crate::task::Task;
-use core::num;
 use crossbeam_queue::SegQueue;
 use std::sync::OnceLock;
+use std::sync::{atomic::Ordering, Arc};
 use std::thread;
-use std::{
-    future::Future,
-    sync::{atomic::Ordering, Arc},
-};
 
+/// Global handle for the executor containing the injector queue and worker threads.
 #[derive(Debug)]
 pub struct ExecutorHandle {
+    /// Global task injector queue where tasks can be pushed from anywhere.
     injector: Arc<SegQueue<Arc<Task>>>,
+    /// Vector of all worker thread handles.
     workers: Arc<Vec<WorkerHandle>>,
 }
 
 impl ExecutorHandle {
+    /// Enqueues a task and wakes up an idle worker if available.
     pub fn enqueue(&self, task: Arc<Task>) {
         self.injector.push(task);
         self.try_unpark_one();
     }
 
+    /// Attempts to wake up one idle worker from all available workers.
     pub fn try_unpark_one(&self) {
         for w in self.workers.iter() {
             if w.idle.swap(false, Ordering::Acquire) {
@@ -41,11 +38,14 @@ impl ExecutorHandle {
     }
 }
 
-pub struct Executor {
-    pub handle: Arc<ExecutorHandle>,
-}
+/// The executor that manages worker threads and task execution.
+
+pub struct Executor {}
 
 impl Executor {
+    /// Creates a new executor with worker threads (capped at 10).
+    ///
+    /// Returns an `ExecutorHandle` for enqueuing tasks.
     pub fn new() -> std::io::Result<Arc<ExecutorHandle>> {
         let mut num_workers = thread::available_parallelism()?.get();
         num_workers = if num_workers > 10 { 10 } else { num_workers };

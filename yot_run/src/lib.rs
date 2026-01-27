@@ -8,11 +8,11 @@
 //! - [`task`]: Task management and state tracking
 //! - [`waker`]: Waker implementation for task scheduling
 
-pub mod executor;
+mod executor;
 pub mod net;
-pub mod reactor;
-pub mod runtime;
-pub mod task;
-pub mod waker;
+mod reactor;
+mod runtime;
+mod task;
+mod waker;
 
 pub use yot_run_macros::main;
