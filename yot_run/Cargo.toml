@@ -2,7 +2,7 @@
 name = "yot_run"
 version = "0.1.0"
 edition = "2024"
-authors = ["Ayotunde"]
+authors = ["Ayotunde <yotstack@gmail.com>"]
 description = "A work-stealing, multi-threaded async executor with non-blocking scheduling."
 readme = "../README.md"
 license = "MIT OR Apache-2.0"
