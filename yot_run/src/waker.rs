@@ -23,7 +23,7 @@ pub fn task_waker(task: Arc<Task>, handle: Arc<ExecutorHandle>) -> Waker {
 
 unsafe fn clone(data: *const ()) -> RawWaker {
     // Cast the pointer back to a reference (do not take ownership!)
-    let data = &*(data as *const WakerData);
+    let data = unsafe { &*(data as *const WakerData) };
     let cloned = Box::new(WakerData {
         task: data.task.clone(),
         handle: data.handle.clone(),
@@ -33,19 +33,19 @@ unsafe fn clone(data: *const ()) -> RawWaker {
 
 unsafe fn wake(data: *const ()) {
     // Take ownership of the Box so it drops at the end of this function
-    let data = Box::from_raw(data as *mut WakerData);
+    let data = unsafe { Box::from_raw(data as *mut WakerData) };
     data.handle.enqueue(data.task);
 }
 
 unsafe fn wake_by_ref(data: *const ()) {
     // Cast the pointer back to a reference (do not take ownership!)
-    let data = &*(data as *const WakerData);
+    let data = unsafe { &*(data as *const WakerData) };
     data.handle.enqueue(data.task.clone());
 }
 
 unsafe fn drop(data: *const ()) {
     // reclaim the Box and let it drop naturally
-    let _ = Box::from_raw(data as *mut WakerData);
+    let _ = unsafe { Box::from_raw(data as *mut WakerData) };
 }
 
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
@@ -59,22 +59,22 @@ pub fn unpark_waker(thread: Thread) -> Waker {
 }
 
 unsafe fn clone_unpark(ptr: *const ()) -> RawWaker {
-    let thread = (*(ptr as *const Thread)).clone();
+    let thread = unsafe { (*(ptr as *const Thread)).clone() };
     RawWaker::new(Box::into_raw(Box::new(thread)) as *const (), &UNPARK_VTABLE)
 }
 
 unsafe fn wake_unpark(ptr: *const ()) {
-    let thread = *Box::from_raw(ptr as *mut Thread);
+    let thread = unsafe { *Box::from_raw(ptr as *mut Thread) };
     thread.unpark();
 }
 
 unsafe fn wake_unpark_by_ref(ptr: *const ()) {
-    let thread = &*(ptr as *const Thread);
+    let thread = unsafe { &*(ptr as *const Thread) };
     thread.unpark();
 }
 
 unsafe fn drop_unpark(ptr: *const ()) {
-    let _ = Box::from_raw(ptr as *mut Thread);
+    let _ = unsafe { Box::from_raw(ptr as *mut Thread) };
 }
 
 static UNPARK_VTABLE: RawWakerVTable =
