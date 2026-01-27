@@ -61,6 +61,14 @@ impl TcpListener {
     ///
     /// Returns `Ok((stream, addr))` when a connection is accepted, or
     /// an IO error on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let listener = TcpListener::bind("127.0.0.1:8080".parse()?)?;
+    /// let (stream, addr) = listener.accept().await?;
+    /// println!("Accepted connection from {}", addr);
+    /// ```
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         AcceptFuture { listener: self }.await
     }
@@ -112,6 +120,15 @@ impl Future for AcceptFuture<'_> {
 /// Provides async read operations. The stream is registered with the reactor
 /// and will wake up waiting tasks when data is available or the connection
 /// is ready for writing.
+///
+/// # Examples
+///
+/// ```ignore
+/// let (stream, _) = listener.accept().await?;
+/// let mut buf = [0u8; 1024];
+/// let n = stream.read(&mut buf).await?;
+/// println!("Read {} bytes", n);
+/// ```
 pub struct TcpStream {
     net: mio::net::TcpStream,
     token: Token,
@@ -120,7 +137,8 @@ pub struct TcpStream {
 impl TcpStream {
     /// Reads data from the TCP stream asynchronously.
     ///
-    /// Suspends the current task until data is available to read.
+    /// Suspends the current task until data is available to read. If the read would block,
+    /// the reactor will wake the task when data becomes available.
     ///
     /// # Arguments
     ///
@@ -130,6 +148,17 @@ impl TcpStream {
     ///
     /// Returns `Ok(n)` with the number of bytes read, or an IO error
     /// if reading fails. Returns `Ok(0)` if the connection is closed.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut buf = [0u8; 256];
+    /// match stream.read(&mut buf).await {
+    ///     Ok(0) => println!("Connection closed"),
+    ///     Ok(n) => println!("Read {} bytes", n),
+    ///     Err(e) => eprintln!("Read error: {}", e),
+    /// }
+    /// ```
     pub async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         ReadFuture { socket: self, buf }.await
     }

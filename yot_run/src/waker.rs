@@ -1,3 +1,9 @@
+//! Waker implementations for task scheduling and notification.
+//!
+//! This module provides two types of wakers:
+//! - **Task Waker**: Re-enqueues tasks into the executor's work queue
+//! - **Unpark Waker**: Wakes parked threads for synchronous blocking operations
+
 use crate::executor::ExecutorHandle;
 use crate::task::Task;
 use std::sync::Arc;
@@ -9,12 +15,34 @@ use std::thread::Thread;
 /// When a task is waiting on I/O or other events, the waker is used to notify the executor
 /// that the task is ready to progress and should be polled again.
 
-/* --- 1. TASK WAKER (For background workers) --- */
+/// Data associated with a task waker.
+///
+/// Contains references to the task and the executor handle needed to re-enqueue
+/// the task when the waker is triggered.
+///
+/// # Invariants
+///
+/// This structure is allocated on the heap and managed through raw pointers by
+/// the RawWaker machinery. The `task` and `handle` are kept alive via `Arc` reference
+/// counts managed by the waker vtable functions.
 pub struct WakerData {
     task: Arc<Task>,
     handle: Arc<ExecutorHandle>,
 }
 
+/// Creates a waker that re-enqueues a task into the executor.
+///
+/// This waker is used for tasks being executed by background workers. When triggered,
+/// it pushes the task back onto the executor's global injector queue.
+///
+/// # Arguments
+///
+/// * `task` - The task to wake
+/// * `handle` - The executor handle for re-enqueueing
+///
+/// # Returns
+///
+/// A `Waker` that can be passed to futures and will enqueue the task when called.
 pub fn task_waker(task: Arc<Task>, handle: Arc<ExecutorHandle>) -> Waker {
     let data = Box::new(WakerData { task, handle });
     let ptr = Box::into_raw(data) as *const ();
@@ -50,9 +78,18 @@ unsafe fn drop(data: *const ()) {
 
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
 
-/* --- 2. UNPARK WAKER (For block_on) --- */
-
 /// Creates a waker that unparks a specific thread.
+///
+/// This waker is used for synchronous blocking operations like `block_on`. When triggered,
+/// it unparks the associated thread, allowing it to resume execution.
+///
+/// # Arguments
+///
+/// * `thread` - The thread handle to unpark when the waker is triggered
+///
+/// # Returns
+///
+/// A `Waker` that can be passed to futures and will unpark the thread when called.
 pub fn unpark_waker(thread: Thread) -> Waker {
     let ptr = Box::into_raw(Box::new(thread)) as *const ();
     unsafe { Waker::from_raw(RawWaker::new(ptr, &UNPARK_VTABLE)) }

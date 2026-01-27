@@ -28,6 +28,26 @@ pub struct Runtime {
 
 impl Runtime {
     /// Creates and starts a new runtime with executor and reactor threads.
+    ///
+    /// This initializes the entire async runtime by spawning the reactor event loop
+    /// in a background thread and creating the executor with worker threads.
+    ///
+    /// # Arguments
+    ///
+    /// * `show_metrics` - If `true`, starts a Prometheus metrics exporter on port 9000
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Runtime)` on success, or an IO error if initialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let runtime = Runtime::new(true)?;
+    /// runtime.block_on(async {
+    ///     // Your async code here
+    /// });
+    /// ```
     pub fn new(show_metrics: bool) -> std::io::Result<Self> {
         // Initialize metrics page
         if show_metrics {
@@ -55,6 +75,9 @@ impl Runtime {
     }
 
     /// Stores executor and reactor handles in thread-local storage.
+    ///
+    /// This must be called before any async I/O operations or task spawning
+    /// to make the runtime context available to worker threads.
     pub fn enter(&self) {
         HANDLE.with(|h| {
             let _ = h.set(self.handle.clone());
@@ -65,6 +88,21 @@ impl Runtime {
     }
 
     /// Spawns a future to be executed asynchronously.
+    ///
+    /// The future will be executed in the background by executor workers.
+    /// This is useful for spawning independent async tasks that don't need to be awaited.
+    ///
+    /// # Arguments
+    ///
+    /// * `fut` - The future to spawn (must return `()`)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// runtime.spawn(async {
+    ///     println!("Running in background");
+    /// });
+    /// ```
     pub fn spawn<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -74,6 +112,22 @@ impl Runtime {
     }
 
     /// Blocks the current thread until the given future completes.
+    ///
+    /// This is a synchronous operation that parks the current thread when the future
+    /// is pending and unparks it when progress can be made. Used to drive a future
+    /// to completion from a synchronous context.
+    ///
+    /// # Arguments
+    ///
+    /// * `fut` - The future to block on (must return `()`)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// runtime.block_on(async {
+    ///     // Your async code runs here
+    /// });
+    /// ```
     pub fn block_on<F>(&self, fut: F)
     where
         F: Future<Output = ()>,
@@ -95,9 +149,24 @@ impl Runtime {
 
 /// Spawns a future from within an active runtime context.
 ///
+/// The future will be enqueued into the executor's global injector queue and
+/// executed by an available worker thread.
+///
 /// # Panics
 ///
-/// Panics if called outside of a runtime context.
+/// Panics if called outside of a runtime context (not within `block_on` or called
+/// from within the runtime itself).
+///
+/// # Examples
+///
+/// ```ignore
+/// #[yot_run::main]
+/// async fn main() {
+///     spawn(async {
+///         println!("Spawned task");
+///     });
+/// }
+/// ```
 pub fn spawn<F>(future: F)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -117,9 +186,12 @@ where
 
 /// Retrieves the current runtime's reactor from thread-local storage.
 ///
+/// The reactor is used by async I/O operations (like `TcpListener` and `TcpStream`)
+/// to register sockets and receive event notifications.
+///
 /// # Panics
 ///
-/// Panics if called outside of a runtime context.
+/// Panics if called outside of a runtime context or when the reactor hasn't been initialized.
 pub(crate) fn get_reactor() -> Arc<Reactor> {
     REACTOR.with(|r| {
         r.get()

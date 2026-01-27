@@ -1,3 +1,9 @@
+//! Task management and lifecycle tracking.
+//!
+//! This module defines the core `Task` struct that wraps futures and manages their
+//! execution state. Tasks use atomic operations for thread-safe access across executor
+//! workers and track whether they are idle, currently being polled, or completed.
+
 use metrics::{counter, gauge};
 // use sptr::Strict;
 use std::future::Future;
@@ -14,7 +20,7 @@ use std::task::{Context, Poll, Waker};
 use crate::executor::ExecutorHandle;
 use crate::waker;
 
-/// Global counter that starts at 0.
+/// Global counter that generates unique task IDs.
 pub(crate) static NEXT_TASK_ID: AtomicUsize = AtomicUsize::new(0);
 
 const TASK_STATE_IDLE: u8 = 0;
@@ -63,9 +69,19 @@ impl Task {
         }
     }
 
+    /// Attempts to take ownership of the task's future for polling.
+    ///
+    /// Uses compare-and-swap to transition from IDLE to POLLING state, ensuring only one
+    /// worker can poll the task at a time. Returns `None` if the task is already being
+    /// polled or has completed.
+    ///
+    /// # Returns
+    ///
+    /// `Some(future)` if the task was successfully transitioned to POLLING state,
+    /// `None` if the task is already in POLLING or COMPLETED state.
     pub fn try_take(&self) -> Option<TaskFuture> {
-        // Since Polling requires mutational and we can have double or more polling
-        // Check if the task is IDLE and mark it as POLLING
+        // Since Polling requires mutation and we can have double or more polling,
+        // check if the task is IDLE and mark it as POLLING.
         // Use AcqRel to ensure visibility across worker threads
 
         if self
@@ -92,6 +108,16 @@ impl Task {
         unsafe { Some(*Box::from_raw(ptr)) }
     }
 
+    /// Polls the given future within the context of a waker.
+    ///
+    /// Advances the future's state and handles completion or re-enqueueing as needed.
+    /// If the future completes, marks the task as COMPLETED. Otherwise, returns the
+    /// future to IDLE state for later re-polling.
+    ///
+    /// # Arguments
+    ///
+    /// * `future` - The pinned future to poll
+    /// * `waker` - The waker to pass to the future for notifications
     pub fn poll(&self, mut future: TaskFuture, waker: &Waker) {
         let mut ctx = Context::from_waker(waker);
         // Remember: 'future' is already pinned because TaskFuture is Pin<Box<...>>

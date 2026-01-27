@@ -9,8 +9,8 @@ use crossbeam_deque::{Steal, Stealer, Worker as DequeWorker};
 use metrics::{counter, gauge, histogram};
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Instant,
@@ -34,6 +34,9 @@ pub struct WorkerHandle {
 
 impl WorkerHandle {
     /// Wakes up an idle worker thread from its parked state.
+    ///
+    /// Calls `unpark()` on the underlying thread, allowing it to resume execution
+    /// from `thread::park()`.
     pub fn wake(&self) {
         self.thread.unpark();
     }
@@ -44,6 +47,14 @@ impl WorkerHandle {
 /// The worker implements a work-stealing scheduler: it first processes its own local queue,
 /// then drains the global injector queue, then attempts to steal tasks from other workers.
 /// When idle, it parks the thread and waits to be woken up by the reactor or other workers.
+///
+/// # Scheduling Algorithm
+///
+/// 1. Poll local queue for tasks
+/// 2. If local queue empty, drain global injector queue
+/// 3. If still no tasks, attempt to steal from other workers
+/// 4. If no work available anywhere, park the thread
+/// 5. When woken, return to step 1
 pub struct Worker {
     /// Unique identifier for this worker thread.
     pub id: usize,
@@ -58,17 +69,19 @@ pub struct Worker {
 impl Worker {
     /// Starts a new worker thread and returns a handle to interact with it.
     ///
-    /// This spawns a new OS thread that will continuously run the worker's main loop,
-    /// processing tasks from its queue, the injector, and stealing from other workers.
+    /// Spawns an OS thread that runs the worker's main scheduling loop. The worker
+    /// will process tasks from its local queue, the global injector, and steal from
+    /// other workers using a work-stealing scheduler pattern.
     ///
     /// # Arguments
     ///
     /// * `id` - Unique identifier for this worker
-    /// * `executor_handle` - Shared executor state (populated once initialization is complete)
+    /// * `executor_handle` - Shared executor state (populated after all workers start)
     ///
     /// # Returns
     ///
-    /// A `WorkerHandle` that can be used to wake the worker and steal from its queue.
+    /// A `WorkerHandle` that provides access to the worker's stealer queue and
+    /// allows unparking the thread.
     pub fn start(id: usize, executor_handle: Arc<OnceLock<Arc<ExecutorHandle>>>) -> WorkerHandle {
         let local_q: DequeWorker<Arc<Task>> = DequeWorker::new_fifo();
         let stealer = local_q.stealer();

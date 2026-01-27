@@ -23,6 +23,13 @@ pub struct ExecutorHandle {
 
 impl ExecutorHandle {
     /// Enqueues a task and wakes up an idle worker if available.
+    ///
+    /// This pushes the task into the global injector queue and attempts to unpark
+    /// a sleeping worker to process it. Updates metrics tracking queue depth.
+    ///
+    /// # Arguments
+    ///
+    /// * `task` - The task to enqueue
     pub fn enqueue(&self, task: Arc<Task>) {
         self.injector.push(task);
         self.try_unpark_one();
@@ -31,6 +38,9 @@ impl ExecutorHandle {
     }
 
     /// Attempts to wake up one idle worker from all available workers.
+    ///
+    /// Uses atomic operations to check if a worker is idle and transitions it to busy.
+    /// Tracks metrics for unparks and saturation events.
     pub fn try_unpark_one(&self) {
         let mut unparked = false;
         for w in self.workers.iter() {
@@ -53,13 +63,34 @@ impl ExecutorHandle {
 }
 
 /// The executor that manages worker threads and task execution.
-
+///
+/// The executor is responsible for:
+/// - Creating and managing a pool of worker threads
+/// - Distributing tasks to workers via the global injector queue
+/// - Tracking executor metrics and performance
+///
+/// Tasks are executed using a work-stealing approach where workers maintain
+/// local queues and can steal tasks from other workers when idle.
 pub struct Executor {}
 
 impl Executor {
-    /// Creates a new executor with worker threads (capped at 10).
+    /// Creates a new executor with worker threads.
     ///
-    /// Returns an `ExecutorHandle` for enqueuing tasks.
+    /// The number of worker threads is determined by the system's CPU parallelism,
+    /// but capped at 10 to limit resource usage. Each worker runs in a dedicated
+    /// OS thread and executes tasks from the global injector queue and local work-stealing queues.
+    ///
+    /// # Returns
+    ///
+    /// An `Arc<ExecutorHandle>` for managing and interacting with the executor,
+    /// or an IO error if thread creation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let executor = Executor::new()?;
+    /// executor.enqueue(task);
+    /// ```
     pub fn new() -> std::io::Result<Arc<ExecutorHandle>> {
         let mut num_workers = thread::available_parallelism()?.get();
         num_workers = if num_workers > 10 { 10 } else { num_workers };
