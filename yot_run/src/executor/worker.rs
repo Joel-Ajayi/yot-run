@@ -6,12 +6,14 @@
 
 use crate::{executor::ExecutorHandle, task::Task};
 use crossbeam_deque::{Steal, Stealer, Worker as DequeWorker};
+use metrics::{counter, gauge, histogram};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
     },
     thread,
+    time::Instant,
 };
 
 /// A handle to a worker thread that allows external threads to interact with it.
@@ -110,6 +112,10 @@ impl Worker {
         let executor_handle = self.executor_handle.wait();
 
         loop {
+            // Track backlog depth
+            gauge!("yot_run_local_queue_depth","worker_id" => self.id.to_string() )
+                .set(self.local_q.len() as f64);
+
             if let Some(task) = self.local_q.pop() {
                 self.poll(task, executor_handle.clone());
                 continue;
@@ -137,6 +143,8 @@ impl Worker {
 
                 match victim.stealer.steal_batch(&self.local_q) {
                     Steal::Success(_) => {
+                        counter!("yot_run_steals_total", "worker_id" => self.id.to_string())
+                            .increment(self.local_q.len() as u64);
                         // We found a task! The rest of the batch is already in our self.local
                         break;
                     }
@@ -157,6 +165,7 @@ impl Worker {
                 continue;
             }
 
+            counter!("yot_run_worker_parks_total", "worker_id" => self.id.to_string()).increment(1);
             thread::park();
 
             self.idle.store(false, Ordering::Release);
@@ -174,9 +183,14 @@ impl Worker {
     /// * `executor_handle` - The executor handle for creating a waker
     fn poll(&self, task: Arc<Task>, executor_handle: Arc<ExecutorHandle>) {
         if let Some(future) = task.try_take() {
+            let start = Instant::now();
             // Add the task back to the queue if pending
             let waker = task.get_or_init_waker(executor_handle);
             task.poll(future, waker);
+
+            // Metric: Poll delay time
+            histogram!("yot_run_poll_duration_seconds", "worker_id" => self.id.to_string())
+                .record(start.elapsed());
         }
     }
 }

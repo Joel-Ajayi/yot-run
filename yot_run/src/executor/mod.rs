@@ -7,8 +7,9 @@ mod worker;
 use self::worker::WorkerHandle;
 use crate::task::Task;
 use crossbeam_queue::SegQueue;
+use metrics::{counter, gauge};
 use std::sync::OnceLock;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 use std::thread;
 
 /// Global handle for the executor containing the injector queue and worker threads.
@@ -25,15 +26,28 @@ impl ExecutorHandle {
     pub fn enqueue(&self, task: Arc<Task>) {
         self.injector.push(task);
         self.try_unpark_one();
+
+        gauge!("yot_run_injector_depth").set(self.injector.len() as f64);
     }
 
     /// Attempts to wake up one idle worker from all available workers.
     pub fn try_unpark_one(&self) {
+        let mut unparked = false;
         for w in self.workers.iter() {
             if w.idle.swap(false, Ordering::Acquire) {
                 w.wake();
+
+                // Track how often we successfully wake a sleeping worker
+                counter!("yot_run_worker_unparks_total", "worker_id" => w.id.to_string())
+                    .increment(1);
+                unparked = true;
                 break;
             }
+        }
+
+        if !unparked {
+            // Track "Saturation": We tried to unpark but everyone was already busy
+            counter!("yot_run_worker_saturation_events_total").increment(1);
         }
     }
 }

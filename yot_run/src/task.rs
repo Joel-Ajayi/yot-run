@@ -1,12 +1,13 @@
-use sptr::Strict;
+use metrics::{counter, gauge};
+// use sptr::Strict;
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr;
-use std::sync::atomic::AtomicUsize;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{
-    atomic::{AtomicPtr, AtomicU8, Ordering},
     Arc,
+    atomic::{AtomicPtr, AtomicU8, Ordering},
 };
 use std::task::{Context, Poll, Waker};
 
@@ -81,6 +82,7 @@ impl Task {
         }
 
         let ptr = self.future.swap(ptr::null_mut(), Ordering::Acquire);
+
         if ptr.is_null() {
             // Should not happen, but be safe
             self.state.store(TASK_STATE_IDLE, Ordering::Release);
@@ -98,6 +100,10 @@ impl Task {
                 // Task finished: Update state to COMPLETE.
                 // The 'future' variable goes out of scope here and is dropped automatically.
                 self.state.store(TASK_STATE_COMPLETED, Ordering::Release);
+
+                // INCREMENT COMPLETED: A task has successfully finished its lifecycle
+                counter!("yot_run_tasks_completed_total").increment(1);
+                gauge!("yot_run_tasks_pending_current").decrement(1.0);
             }
             Poll::Pending => {
                 // Task not finished: Put the future back into the mailbox.
