@@ -10,7 +10,7 @@ use std::task::Waker;
 /// detect when resources become available and notify waiting tasks.
 pub struct Reactor {
     // Shared registry so workers can register their sockets
-    registry: Registry,
+    pub registry: Registry,
     pub wakers: Arc<Mutex<HashMap<Token, Waker>>>,
 }
 
@@ -52,7 +52,6 @@ pub fn run_reactor_loop(mut poll: Poll, wakers: Arc<Mutex<HashMap<Token, Waker>>
 
             // Find the waker associated with this Token
             if let Some(waker) = wakers_guard.remove(&token) {
-                // This triggers your manual Waker/ArcWake::wake() logic
                 // which pushes the task back to the Global Injector.
                 waker.wake();
             }

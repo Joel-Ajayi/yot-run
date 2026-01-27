@@ -81,14 +81,13 @@ impl Task {
         }
 
         let ptr = self.future.swap(ptr::null_mut(), Ordering::Acquire);
-
         if ptr.is_null() {
             // Should not happen, but be safe
             self.state.store(TASK_STATE_IDLE, Ordering::Release);
             return None;
         }
 
-        Some(unsafe { *Box::from_raw(ptr as *mut TaskFuture) })
+        unsafe { Some(*Box::from_raw(ptr)) }
     }
 
     pub fn poll(&self, mut future: TaskFuture, waker: &Waker) {

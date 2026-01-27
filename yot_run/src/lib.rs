@@ -9,6 +9,7 @@
 //! - [`waker`]: Waker implementation for task scheduling
 
 pub mod executor;
+pub mod net;
 pub mod reactor;
 pub mod runtime;
 pub mod task;

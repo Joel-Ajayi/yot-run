@@ -52,6 +52,7 @@ impl Runtime {
         self.handle.enqueue(task);
     }
 
+    // This worker thread
     pub fn block_on<F>(&self, fut: F)
     where
         F: Future<Output = ()>,
@@ -82,6 +83,14 @@ where
         let task = Arc::new(Task::new(Box::pin(future)));
         handle.enqueue(task);
     });
+}
+
+pub(crate) fn get_handle() -> Arc<ExecutorHandle> {
+    HANDLE.with(|h| {
+        h.get()
+            .cloned()
+            .expect("yot_run: spawn called outside of a runtime context")
+    })
 }
 
 /// Used by TcpListener::bind() to find the reactor in TLS.
