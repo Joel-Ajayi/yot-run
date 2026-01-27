@@ -13,7 +13,7 @@ keywords = ["async", "executor", "work-stealing", "futures", "reactor"]
 categories = ["asynchronous", "concurrency"]
 
 [dependencies]
-yot_run_macros = { path = "../yot_run_macros" }
+yot_run_macros = { version = "0.1.0", path = "../yot_run_macros" }
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3"
 crossbeam-utils = "0.8.21"
