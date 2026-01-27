@@ -1,4 +1,4 @@
-use mio::{Events, Interest, Poll, Registry, Token};
+use mio::{Events, Poll, Registry, Token};
 use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ pub struct Reactor {
 
 impl Reactor {
     pub fn new() -> std::io::Result<(Arc<Self>, Poll)> {
-        let mut poll = Poll::new()?;
+        let poll = Poll::new()?;
         let registry = poll.registry().try_clone()?;
         let reactor = Arc::new(Self {
             registry,

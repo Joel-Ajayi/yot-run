@@ -9,10 +9,11 @@
 //! - [`waker`]: Waker implementation for task scheduling
 
 mod executor;
-pub mod net;
+mod net;
 mod reactor;
 mod runtime;
 mod task;
 mod waker;
 
+pub use runtime::spawn;
 pub use yot_run_macros::main;
