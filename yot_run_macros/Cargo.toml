@@ -1,6 +1,6 @@
 [package]
 name = "yot_run_macros"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Ayotunde <yotstack@gmail.com>"]
 description = "The wrapper macro for a work-stealing, multi-threaded async executor with non-blocking scheduling."
