@@ -8,7 +8,6 @@ readme = "../README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Joel-Ajayi/yot-run"
 homepage = "https://github.com/Joel-Ajayi/yot-run"
-documentation = "https://github.com/Joel-Ajayi/yot-run/REAME.md"
 keywords = ["async", "executor", "work-stealing", "futures", "reactor"]
 categories = ["asynchronous", "concurrency"]
 
