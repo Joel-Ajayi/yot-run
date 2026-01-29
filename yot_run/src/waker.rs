@@ -14,7 +14,7 @@ use std::thread::Thread;
 ///
 /// When a task is waiting on I/O or other events, the waker is used to notify the executor
 /// that the task is ready to progress and should be polled again.
-
+///
 /// Data associated with a task waker.
 ///
 /// Contains references to the task and the executor handle needed to re-enqueue

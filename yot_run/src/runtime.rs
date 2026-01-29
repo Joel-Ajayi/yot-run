@@ -55,7 +55,7 @@ impl Runtime {
             metrics_exporter_prometheus::PrometheusBuilder::new()
                 .with_http_listener(([127, 0, 0, 1], port))
                 .install()
-                .map_err(|e| io::Error::other(e))?;
+                .map_err(io::Error::other)?;
             println!("📊 [yot_run] Metrics enabled at http://localhost:{port}/metrics");
         }
 

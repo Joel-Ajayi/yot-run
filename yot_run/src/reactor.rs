@@ -14,7 +14,7 @@ use std::task::Waker;
 /// - **Registry**: Central collection point where sockets are registered for I/O monitoring
 /// - **Wakers Map**: Maps event tokens to the wakers that should be invoked when events occur
 /// - **Poll Loop**: Background thread that waits for OS events and triggers corresponding wakers
-pub struct Reactor {
+pub(crate) struct Reactor {
     // Shared registry so workers can register their sockets
     pub registry: Registry,
     pub wakers: Arc<Mutex<HashMap<Token, Waker>>>,
@@ -71,7 +71,7 @@ impl Reactor {
 /// # Panics
 ///
 /// Panics if an unrecoverable polling error occurs (not an interruption).
-pub fn run_reactor_loop(mut poll: Poll, wakers: Arc<Mutex<HashMap<Token, Waker>>>) {
+pub(crate) fn run_reactor_loop(mut poll: Poll, wakers: Arc<Mutex<HashMap<Token, Waker>>>) {
     let mut events = Events::with_capacity(1024);
 
     loop {
