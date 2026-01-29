@@ -1,5 +1,10 @@
 # yot-run
 
+[![Crates.io](https://img.shields.io/crates/v/yot_run.svg)](https://crates.io/crates/yot_run)
+[![Docs.rs](https://docs.rs/yot_run/badge.svg)](https://docs.rs/yot_run/)
+[![License](https://img.shields.io/crates/l/yot_run.svg)](https://github.com/Joel-Ajayi/yot-run#license)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+
 A custom async runtime implementation demonstrating the core components of an async executor. `yot-run` is an educational project that provides a lightweight executor for running async tasks with support for spawning futures, managing their lifecycle, and integrating with OS-level I/O events.
 
 ## Overview
@@ -105,6 +110,7 @@ async fn main() {
 ### Async I/O
 
 ```rust
+use yot_run;
 use yot_run::net::TcpListener;
 
 #[yot_run::main]
@@ -115,9 +121,20 @@ async fn main() -> std::io::Result<()> {
         let (stream, addr) = listener.accept().await?;
         yot_run::spawn(async move {
             let mut buf = [0u8; 1024];
-            match stream.read(&mut buf).await {
-                Ok(n) => println!("Read {} bytes from {}", n, addr),
-                Err(e) => eprintln!("Read error: {}", e),
+            loop {
+                let n = match socket.read(&mut buf).await {
+                     Ok(n) if n == 0 => return, // Connection closed
+                     Ok(n) => n,
+                     Err(e) => {
+                        eprintln!("Failed to read from socket; err = {:?}", e);
+                        return;
+                    }
+                };
+
+                if let Err(e) = socket.write_all(&buf[0..n]).await {
+                     eprintln!("Failed to write to socket; err = {:?}", e);
+                     return;
+                }
             }
         });
     }
@@ -205,5 +222,3 @@ This project is designed to teach and demonstrate:
 - OS-level I/O event handling with epoll/kqueue
 - Waker-based task notification systems
 - Thread parking for efficient idle waiting
-
-For production async runtime needs, consider using [Tokio](https://tokio.rs).

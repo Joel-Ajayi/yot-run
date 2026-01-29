@@ -109,12 +109,10 @@ impl Parse for Args {
 ///
 /// ```rust
 /// use yot_run;
-/// use tokio::net::TcpListener; // Or your preferred async net crate
-/// use tokio::io::{AsyncReadExt, AsyncWriteExt};
 ///
 /// #[yot_run::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let listener = TcpListener::bind("127.0.0.1:8080").await?;
+///     let listener = yot_run::net::TcpListener::bind("127.0.0.1:8080").await?;
 ///     println!("Server listening on 127.0.0.1:8080");
 ///
 ///     loop {
